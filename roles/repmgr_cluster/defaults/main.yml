@@ -1,0 +1,27 @@
+---
+# Default variables for repmgr_cluster role
+# These can be overridden by group_vars or host_vars
+
+# Installation mode
+force_reinstall: false
+skip_existing: true
+
+# Security settings
+postgresql_hba_trust_local: true
+postgresql_ssl_enabled: false
+
+# Backup and maintenance
+postgresql_archive_mode: "on"
+postgresql_archive_command: "test ! -f /var/lib/pgsql/archive/%f && cp %p /var/lib/pgsql/archive/%f"
+postgresql_max_wal_senders: 10
+postgresql_wal_level: "replica"
+postgresql_checkpoint_completion_target: 0.9
+
+# repmgr daemon settings
+repmgrd_enabled: true
+repmgrd_log_level: "INFO"
+
+# Monitoring and health checks
+repmgr_monitoring_history: true
+repmgr_monitor_interval_secs: 2
+repmgr_degraded_monitoring_timeout: 300

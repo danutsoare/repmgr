@@ -1,0 +1,107 @@
+---
+# Standby node setup tasks
+
+- name: Set node ID for standby
+  ansible.builtin.set_fact:
+    current_node_id: "{{ repmgr_node_id_start + groups[cluster_name + '_standby'].index(inventory_hostname) + 1 }}"
+
+- name: Get primary node hostname
+  ansible.builtin.set_fact:
+    primary_hostname: "{{ groups[cluster_name + '_primary'][0] }}"
+
+- name: Stop PostgreSQL service before cloning
+  ansible.builtin.systemd_service:
+    name: "{{ postgresql_service_name }}"
+    state: stopped
+
+- name: Remove existing data directory for clean clone
+  ansible.builtin.file:
+    path: "{{ postgresql_data_dir }}"
+    state: absent
+  when: force_reinstall | default(false)
+
+- name: Create data directory for standby
+  ansible.builtin.file:
+    path: "{{ postgresql_data_dir }}"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: '0700'
+
+- name: Check if standby data directory is empty
+  ansible.builtin.find:
+    paths: "{{ postgresql_data_dir }}"
+    file_type: any
+  register: data_dir_contents
+
+- name: Clone primary database to standby
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/repmgr -h {{ primary_hostname }} -U {{ repmgr_user }} -d {{ repmgr_database }} -f /etc/repmgr/{{ postgresql_version }}/repmgr.conf standby clone
+  when: data_dir_contents.matched == 0 or force_reinstall | default(false)
+  register: standby_cloned
+
+- name: Start PostgreSQL service on standby
+  ansible.builtin.systemd_service:
+    name: "{{ postgresql_service_name }}"
+    state: started
+    enabled: yes
+
+- name: Wait for standby PostgreSQL to be ready
+  ansible.builtin.wait_for:
+    port: "{{ postgresql_port }}"
+    host: localhost
+    delay: 10
+    timeout: 60
+
+- name: Verify standby is running
+  ansible.builtin.command: "/usr/pgsql-{{ postgresql_version }}/bin/pg_isready -p {{ postgresql_port }} -h localhost"
+  register: standby_ready
+  retries: 5
+  delay: 3
+  until: standby_ready.rc == 0
+  changed_when: false
+
+- name: Check if standby is already registered
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/repmgr -f /etc/repmgr/{{ postgresql_version }}/repmgr.conf cluster show --csv | grep "{{ inventory_hostname }}" | wc -l
+  register: standby_registered
+  changed_when: false
+  failed_when: false
+
+- name: Register standby with repmgr
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/repmgr -f /etc/repmgr/{{ postgresql_version }}/repmgr.conf standby register
+  when: standby_registered.stdout == "0"
+  register: standby_registration
+
+- name: Start repmgrd service on standby
+  ansible.builtin.systemd_service:
+    name: "repmgrd-{{ postgresql_version }}"
+    state: started
+    enabled: yes
+  when: repmgrd_enabled | default(true)
+
+- name: Verify replication status
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/repmgr -f /etc/repmgr/{{ postgresql_version }}/repmgr.conf cluster show
+  register: replication_status
+  changed_when: false
+
+- name: Display standby setup status
+  ansible.builtin.debug:
+    msg: |
+      Standby node setup completed:
+      - Data cloned: {{ 'yes' if standby_cloned is changed else 'existing data used' }}
+      - Node ID: {{ current_node_id }}
+      - Primary: {{ primary_hostname }}
+      - Standby registered: {{ 'yes' if standby_registration is changed else 'already registered' }}
+      - Replication status:
+      {{ replication_status.stdout | indent(8) }}

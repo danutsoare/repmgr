@@ -1,0 +1,85 @@
+---
+# Pre-flight checks for PostgreSQL cluster deployment
+
+- name: Validate that cluster configuration exists
+  ansible.builtin.assert:
+    that:
+      - cluster_name is defined
+      - postgresql_version is defined
+      - postgresql_port is defined
+    fail_msg: "Cluster configuration is missing or incomplete"
+    success_msg: "Cluster configuration validated successfully"
+
+- name: Check if host belongs to a valid cluster group
+  ansible.builtin.assert:
+    that:
+      - group_names | select('match', '^cluster') | list | length > 0
+    fail_msg: "Host must belong to a cluster group (cluster1, cluster2, etc.)"
+    success_msg: "Host belongs to cluster group: {{ group_names | select('match', '^cluster') | first }}"
+
+- name: Verify PostgreSQL version is supported
+  ansible.builtin.assert:
+    that:
+      - postgresql_version in ['12', '13', '14', '15', '16', '17']
+    fail_msg: "PostgreSQL version {{ postgresql_version }} is not supported"
+    success_msg: "PostgreSQL version {{ postgresql_version }} is supported"
+
+- name: Check if port is available (only if PostgreSQL is not already running)
+  ansible.builtin.wait_for:
+    port: "{{ postgresql_port }}"
+    state: stopped
+    timeout: 5
+  ignore_errors: yes
+  register: port_check
+  changed_when: false
+
+- name: Warn if port is already in use
+  ansible.builtin.debug:
+    msg: "WARNING: Port {{ postgresql_port }} appears to be in use. This may be expected if PostgreSQL is already installed."
+  when: port_check is failed
+
+- name: Check disk space for data directory
+  ansible.builtin.stat:
+    path: "{{ postgresql_base_dir }}"
+  register: base_dir_stat
+
+- name: Create base directory if it doesn't exist (for disk space check)
+  ansible.builtin.file:
+    path: "{{ postgresql_base_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: not base_dir_stat.stat.exists
+
+- name: Check available disk space
+  ansible.builtin.shell: df -BG {{ postgresql_base_dir }} | awk 'NR==2 {print $4}' | sed 's/G//'
+  register: available_space
+  changed_when: false
+
+- name: Ensure minimum disk space is available
+  ansible.builtin.assert:
+    that:
+      - available_space.stdout | int >= 5
+    fail_msg: "Insufficient disk space. At least 5GB required, found {{ available_space.stdout }}GB"
+    success_msg: "Sufficient disk space available: {{ available_space.stdout }}GB"
+
+- name: Check system requirements
+  ansible.builtin.assert:
+    that:
+      - ansible_memtotal_mb >= 1024
+      - ansible_processor_vcpus >= 1
+    fail_msg: "System does not meet minimum requirements (1GB RAM, 1 CPU)"
+    success_msg: "System meets minimum requirements"
+
+- name: Display cluster deployment plan
+  ansible.builtin.debug:
+    msg: |
+      Cluster Deployment Plan:
+      - Cluster: {{ cluster_name }}
+      - PostgreSQL Version: {{ postgresql_version }}
+      - Port: {{ postgresql_port }}
+      - Data Directory: {{ postgresql_data_dir }}
+      - Service Name: {{ postgresql_service_name }}
+      - Node Role: {{ 'primary' if inventory_hostname in groups[cluster_name + '_primary'] else 'standby' }}
+  tags: always

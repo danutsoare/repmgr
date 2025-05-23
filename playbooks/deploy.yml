@@ -1,0 +1,24 @@
+---
+# Main playbook for deploying PostgreSQL clusters with repmgr
+- name: Deploy PostgreSQL clusters with repmgr
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  roles:
+    - role: repmgr_cluster
+      tags:
+        - postgresql
+        - repmgr
+        - cluster
+
+  post_tasks:
+    - name: Display cluster deployment summary
+      debug:
+        msg: |
+          Cluster {{ cluster_name }} deployed successfully:
+          - PostgreSQL {{ postgresql_version }} on port {{ postgresql_port }}
+          - Data directory: {{ postgresql_data_dir }}
+          - Service: {{ postgresql_service_name }}
+          - repmgr cluster: {{ repmgr_cluster }}
+      tags: summary

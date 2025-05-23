@@ -1,0 +1,36 @@
+---
+# Main tasks for repmgr_cluster role
+
+- name: Include pre-flight checks
+  include_tasks: preflight.yml
+  tags: preflight
+
+- name: Include repository setup
+  include_tasks: repositories.yml
+  tags: repositories
+
+- name: Include PostgreSQL installation
+  include_tasks: postgresql.yml
+  tags: postgresql
+
+- name: Include repmgr installation
+  include_tasks: repmgr.yml
+  tags: repmgr
+
+- name: Include configuration tasks
+  include_tasks: configuration.yml
+  tags: configuration
+
+- name: Include service management
+  include_tasks: services.yml
+  tags: services
+
+- name: Include cluster initialization
+  include_tasks: cluster_init.yml
+  tags: cluster_init
+  when: inventory_hostname in groups[cluster_name + '_primary']
+
+- name: Include standby setup
+  include_tasks: standby.yml
+  tags: standby
+  when: inventory_hostname in groups[cluster_name + '_standby']

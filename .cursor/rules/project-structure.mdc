@@ -1,0 +1,47 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Project Structure Guide
+
+## Ansible Module Usage
+- **ALWAYS use Fully Qualified Collection Names (FQCN)** for all Ansible modules
+- Use `ansible.builtin.dnf` instead of `dnf` or `yum`
+- Use `ansible.builtin.systemd_service` instead of `systemd` or `service`
+- Use `ansible.builtin.template` instead of `template`
+- Use `ansible.builtin.file` instead of `file`
+- Use `ansible.builtin.user` instead of `user`
+- Use `ansible.builtin.group` instead of `group`
+- Use `ansible.builtin.command` instead of `command`
+- Use `ansible.builtin.shell` instead of `shell`
+- Use `ansible.builtin.copy` instead of `copy`
+- Use `ansible.builtin.stat` instead of `stat`
+- Use `ansible.builtin.debug` instead of `debug`
+- Use `ansible.builtin.assert` instead of `assert`
+- Use `ansible.builtin.wait_for` instead of `wait_for`
+- Use `ansible.builtin.slurp` instead of `slurp`
+- Use `ansible.posix.authorized_key` instead of `authorized_key`
+- Use `community.crypto.openssh_keypair` instead of `openssh_keypair`
+
+The main planning and task tracking documents for this project are:
+- [PLANNING.md](mdc:PLANNING.md): High-level vision, architecture, constraints, tools, and project structure.
+- [TASK.md](mdc:TASK.md): Tracks current tasks, backlog, milestones, and discoveries.
+
+The Ansible project is structured as follows:
+- `inventories/`: Contains inventory files for Ansible hosts.
+- `roles/repmgr_cluster/`: Contains the main role for managing PostgreSQL clusters with repmgr.
+  - `tasks/`: Task files for the role.
+  - `templates/`: Jinja2 templates for configuration files.
+  - `defaults/`: Default variables for the role.
+- `playbooks/`: Contains playbooks to deploy clusters.
+- `group_vars/`: Group variable files for cluster and host configuration.
+
+Refer to [PLANNING.md](mdc:PLANNING.md) for more details on the architecture and constraints.
+
+## Code Quality
+- Follow data-driven approach to avoid code duplication
+- Use descriptive variable names
+- Add meaningful comments and debug messages
+- Use proper error handling and assertions
+- Follow Ansible best practices for idempotency

@@ -1,0 +1,84 @@
+---
+# repmgr installation and setup
+
+- name: Install repmgr packages
+  ansible.builtin.dnf:
+    name:
+      - "repmgr_{{ postgresql_version }}"
+      - "repmgr_{{ postgresql_version }}-debuginfo"
+    state: present
+  register: repmgr_installed
+
+- name: Create repmgr configuration directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: '0755'
+  loop:
+    - "/etc/repmgr"
+    - "/etc/repmgr/{{ postgresql_version }}"
+    - "/var/log/repmgr"
+    - "/var/log/repmgr/{{ postgresql_version }}"
+
+- name: Create repmgr log directory with proper permissions
+  ansible.builtin.file:
+    path: "/var/log/repmgr/{{ postgresql_version }}"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: '0755'
+
+- name: Check if repmgr extension is already installed
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    export PGDATA={{ postgresql_data_dir }}
+    /usr/pgsql-{{ postgresql_version }}/bin/psql -p {{ postgresql_port }} -d postgres -tAc "SELECT 1 FROM pg_extension WHERE extname='repmgr';" 2>/dev/null || echo "0"
+  register: repmgr_extension_check
+  changed_when: false
+  failed_when: false
+
+- name: Display repmgr installation status
+  ansible.builtin.debug:
+    msg: |
+      repmgr {{ postgresql_version }} installation completed:
+      - Packages installed: {{ repmgr_installed is changed }}
+      - Configuration directory: /etc/repmgr/{{ postgresql_version }}
+      - Log directory: /var/log/repmgr/{{ postgresql_version }}
+      - Extension available: {{ repmgr_extension_check.stdout != "0" if repmgr_extension_check.stdout is defined else false }}
+
+- name: Create repmgr SSH key directory
+  ansible.builtin.file:
+    path: "/var/lib/pgsql/.ssh"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: '0700'
+
+- name: Generate SSH key for repmgr (for primary node)
+  community.crypto.openssh_keypair:
+    path: "/var/lib/pgsql/.ssh/id_rsa"
+    type: rsa
+    size: 2048
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: '0600'
+  when: inventory_hostname in groups[cluster_name + '_primary']
+  register: ssh_key_generated
+
+- name: Read public key content
+  ansible.builtin.slurp:
+    src: "/var/lib/pgsql/.ssh/id_rsa.pub"
+  register: ssh_public_key
+  when: inventory_hostname in groups[cluster_name + '_primary']
+
+- name: Distribute SSH public key to all cluster nodes
+  ansible.posix.authorized_key:
+    user: "{{ postgresql_user }}"
+    key: "{{ hostvars[groups[cluster_name + '_primary'][0]]['ssh_public_key']['content'] | b64decode }}"
+    state: present
+  when: 
+    - groups[cluster_name + '_primary'] | length > 0
+    - hostvars[groups[cluster_name + '_primary'][0]]['ssh_public_key'] is defined

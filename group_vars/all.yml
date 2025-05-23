@@ -1,0 +1,82 @@
+---
+# Global variables for all hosts and clusters
+
+# PostgreSQL installation settings
+postgresql_repo_url: "https://download.postgresql.org/pub/repos/yum/reporpms/EL-{{ ansible_distribution_major_version }}-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
+
+# System settings
+firewall_enabled: true
+selinux_enabled: true
+
+# Default PostgreSQL user and group
+postgresql_user: postgres
+postgresql_group: postgres
+
+# Default directories
+postgresql_base_dir: /var/lib/pgsql
+postgresql_log_dir: /var/log/postgresql
+
+# Common packages
+common_packages:
+  - vim
+  - wget
+  - curl
+  - firewalld
+
+# Cluster definitions - all cluster-specific settings in one place
+postgresql_clusters:
+  cluster1:
+    cluster_name: cluster1
+    cluster_id: 1
+    postgresql_version: "15"
+    postgresql_port: 5432
+    repmgr_node_id_start: 1
+    postgresql_max_connections: 100
+    
+  cluster2:
+    cluster_name: cluster2
+    cluster_id: 2
+    postgresql_version: "16"
+    postgresql_port: 5433
+    repmgr_node_id_start: 10
+    postgresql_max_connections: 200
+
+# Default cluster configuration template (applied to all clusters)
+cluster_defaults:
+  # repmgr settings
+  repmgr_user: repmgr
+  repmgr_database: repmgr
+  
+  # Network settings
+  postgresql_listen_addresses: "*"
+  
+  # repmgr specific configuration
+  repmgr_reconnect_attempts: 6
+  repmgr_reconnect_interval: 10
+  repmgr_failover: "automatic"
+
+# Derived variables (computed from cluster-specific settings)
+# These will be set dynamically based on the current cluster being processed
+current_cluster: "{{ postgresql_clusters[group_names | select('match', '^cluster') | first] }}"
+cluster_name: "{{ current_cluster.cluster_name }}"
+cluster_id: "{{ current_cluster.cluster_id }}"
+postgresql_version: "{{ current_cluster.postgresql_version }}"
+postgresql_port: "{{ current_cluster.postgresql_port }}"
+postgresql_max_connections: "{{ current_cluster.postgresql_max_connections }}"
+repmgr_node_id_start: "{{ current_cluster.repmgr_node_id_start }}"
+
+# Computed paths and service names
+postgresql_data_dir: "/var/lib/pgsql/{{ postgresql_version }}/data"
+postgresql_config_dir: "{{ postgresql_data_dir }}"
+postgresql_service_name: "postgresql-{{ postgresql_version }}"
+
+# repmgr configuration (uses defaults + cluster-specific values)
+repmgr_user: "{{ cluster_defaults.repmgr_user }}"
+repmgr_database: "{{ cluster_defaults.repmgr_database }}"
+postgresql_listen_addresses: "{{ cluster_defaults.postgresql_listen_addresses }}"
+repmgr_cluster: "{{ cluster_name }}"
+repmgr_reconnect_attempts: "{{ cluster_defaults.repmgr_reconnect_attempts }}"
+repmgr_reconnect_interval: "{{ cluster_defaults.repmgr_reconnect_interval }}"
+repmgr_failover: "{{ cluster_defaults.repmgr_failover }}"
+repmgr_promote_command: "/usr/pgsql-{{ postgresql_version }}/bin/repmgr standby promote -f /etc/repmgr/{{ postgresql_version }}/repmgr.conf --log-to-file"
+repmgr_follow_command: "/usr/pgsql-{{ postgresql_version }}/bin/repmgr standby follow -f /etc/repmgr/{{ postgresql_version }}/repmgr.conf --log-to-file --upstream-node-id=%n"

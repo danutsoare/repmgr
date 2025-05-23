@@ -1,0 +1,49 @@
+---
+# Repository setup for PostgreSQL and repmgr
+
+- name: Check if PostgreSQL repository is already installed
+  ansible.builtin.dnf:
+    list: pgdg-redhat-repo
+  register: pgdg_repo_check
+  failed_when: false
+  changed_when: false
+
+- name: Install PostgreSQL official repository
+  ansible.builtin.dnf:
+    name: "{{ postgresql_repo_url }}"
+    state: present
+    disable_gpg_check: yes
+  when: pgdg_repo_check.results | length == 0
+  register: repo_installed
+
+- name: Update dnf cache after repository installation
+  ansible.builtin.dnf:
+    update_cache: yes
+  when: repo_installed is changed
+
+- name: Verify PostgreSQL packages are available
+  ansible.builtin.dnf:
+    list: "postgresql{{ postgresql_version }}-server"
+  register: pg_package_check
+  failed_when: pg_package_check.results | length == 0
+
+- name: Verify repmgr packages are available
+  ansible.builtin.dnf:
+    list: "repmgr_{{ postgresql_version }}"
+  register: repmgr_package_check
+  failed_when: repmgr_package_check.results | length == 0
+
+- name: Display available PostgreSQL versions
+  ansible.builtin.debug:
+    msg: "PostgreSQL {{ postgresql_version }} packages are available from repository"
+
+- name: Install EPEL repository (required for some dependencies)
+  ansible.builtin.dnf:
+    name: epel-release
+    state: present
+  when: ansible_distribution in ['CentOS', 'Rocky', 'AlmaLinux']
+
+- name: Install common packages
+  ansible.builtin.dnf:
+    name: "{{ common_packages }}"
+    state: present

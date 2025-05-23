@@ -1,0 +1,93 @@
+---
+# Configuration files for PostgreSQL and repmgr
+
+- name: Generate PostgreSQL configuration
+  ansible.builtin.template:
+    src: postgresql.conf.j2
+    dest: "{{ postgresql_config_dir }}/postgresql.conf"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: '0600'
+    backup: yes
+  register: postgresql_config
+  notify: restart postgresql
+
+- name: Generate PostgreSQL HBA configuration
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ postgresql_config_dir }}/pg_hba.conf"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: '0600'
+    backup: yes
+  register: postgresql_hba
+  notify: restart postgresql
+
+- name: Generate repmgr configuration
+  ansible.builtin.template:
+    src: repmgr.conf.j2
+    dest: "/etc/repmgr/{{ postgresql_version }}/repmgr.conf"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: '0600'
+    backup: yes
+  register: repmgr_config
+
+- name: Create repmgr log rotation configuration
+  ansible.builtin.template:
+    src: repmgr.logrotate.j2
+    dest: "/etc/logrotate.d/repmgr-{{ postgresql_version }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Configure firewall for PostgreSQL
+  ansible.posix.firewalld:
+    port: "{{ postgresql_port }}/tcp"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  when: firewall_enabled | default(true)
+  ignore_errors: yes
+
+- name: Configure SELinux for PostgreSQL custom port
+  ansible.posix.seport:
+    ports: "{{ postgresql_port }}"
+    proto: tcp
+    setype: postgresql_port_t
+    state: present
+  when: 
+    - selinux_enabled | default(true)
+    - postgresql_port != 5432
+  ignore_errors: yes
+
+- name: Create PostgreSQL systemd service override
+  ansible.builtin.template:
+    src: postgresql.service.j2
+    dest: "/etc/systemd/system/{{ postgresql_service_name }}.service"
+    owner: root
+    group: root
+    mode: '0644'
+  register: postgresql_service_config
+  notify: 
+    - reload systemd
+    - restart postgresql
+
+- name: Create repmgr systemd service
+  ansible.builtin.template:
+    src: repmgrd.service.j2
+    dest: "/etc/systemd/system/repmgrd-{{ postgresql_version }}.service"
+    owner: root
+    group: root
+    mode: '0644'
+  register: repmgrd_service_config
+  notify: reload systemd
+
+- name: Display configuration status
+  ansible.builtin.debug:
+    msg: |
+      Configuration files updated:
+      - PostgreSQL config: {{ postgresql_config is changed }}
+      - PostgreSQL HBA: {{ postgresql_hba is changed }}
+      - repmgr config: {{ repmgr_config is changed }}
+      - Service definitions: {{ postgresql_service_config is changed or repmgrd_service_config is changed }}

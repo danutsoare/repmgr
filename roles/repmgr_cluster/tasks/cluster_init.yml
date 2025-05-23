@@ -1,0 +1,80 @@
+---
+# Cluster initialization tasks (for primary nodes only)
+
+- name: Check if repmgr user already exists
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/psql -p {{ postgresql_port }} -d postgres -tAc "SELECT 1 FROM pg_user WHERE usename='{{ repmgr_user }}';" 2>/dev/null || echo "0"
+  register: repmgr_user_exists
+  changed_when: false
+
+- name: Create repmgr user
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/psql -p {{ postgresql_port }} -d postgres -c "CREATE USER {{ repmgr_user }} REPLICATION SUPERUSER LOGIN;"
+  when: repmgr_user_exists.stdout == "0"
+  register: repmgr_user_created
+
+- name: Check if repmgr database already exists
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/psql -p {{ postgresql_port }} -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='{{ repmgr_database }}';" 2>/dev/null || echo "0"
+  register: repmgr_db_exists
+  changed_when: false
+
+- name: Create repmgr database
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/psql -p {{ postgresql_port }} -d postgres -c "CREATE DATABASE {{ repmgr_database }} OWNER {{ repmgr_user }};"
+  when: repmgr_db_exists.stdout == "0"
+  register: repmgr_db_created
+
+- name: Install repmgr extension
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/psql -p {{ postgresql_port }} -d {{ repmgr_database }} -c "CREATE EXTENSION IF NOT EXISTS repmgr;"
+  register: repmgr_extension_installed
+
+- name: Set node ID for primary
+  ansible.builtin.set_fact:
+    current_node_id: "{{ repmgr_node_id_start }}"
+
+- name: Check if primary node is already registered
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/repmgr -f /etc/repmgr/{{ postgresql_version }}/repmgr.conf cluster show --csv | grep "{{ inventory_hostname }}" | wc -l
+  register: primary_registered
+  changed_when: false
+  failed_when: false
+
+- name: Register primary node with repmgr
+  become_user: "{{ postgresql_user }}"
+  ansible.builtin.shell: |
+    export PGPORT={{ postgresql_port }}
+    /usr/pgsql-{{ postgresql_version }}/bin/repmgr -f /etc/repmgr/{{ postgresql_version }}/repmgr.conf primary register
+  when: primary_registered.stdout == "0"
+  register: primary_registration
+
+- name: Start repmgrd service on primary
+  ansible.builtin.systemd_service:
+    name: "repmgrd-{{ postgresql_version }}"
+    state: started
+    enabled: yes
+  when: repmgrd_enabled | default(true)
+
+- name: Display cluster initialization status
+  ansible.builtin.debug:
+    msg: |
+      Primary node initialization completed:
+      - repmgr user: {{ 'created' if repmgr_user_created is changed else 'exists' }}
+      - repmgr database: {{ 'created' if repmgr_db_created is changed else 'exists' }}
+      - repmgr extension: installed
+      - Primary registered: {{ 'yes' if primary_registration is changed else 'already registered' }}
+      - Node ID: {{ current_node_id }}
+      - Cluster: {{ repmgr_cluster }}

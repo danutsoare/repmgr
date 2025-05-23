@@ -1,0 +1,36 @@
+---
+# Handlers for repmgr_cluster role
+
+- name: reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: yes
+
+- name: restart postgresql
+  ansible.builtin.systemd_service:
+    name: "{{ postgresql_service_name }}"
+    state: restarted
+  
+- name: start postgresql
+  ansible.builtin.systemd_service:
+    name: "{{ postgresql_service_name }}"
+    state: started
+
+- name: stop postgresql
+  ansible.builtin.systemd_service:
+    name: "{{ postgresql_service_name }}"
+    state: stopped
+
+- name: restart repmgrd
+  ansible.builtin.systemd_service:
+    name: "repmgrd-{{ postgresql_version }}"
+    state: restarted
+
+- name: start repmgrd
+  ansible.builtin.systemd_service:
+    name: "repmgrd-{{ postgresql_version }}"
+    state: started
+
+- name: stop repmgrd
+  ansible.builtin.systemd_service:
+    name: "repmgrd-{{ postgresql_version }}"
+    state: stopped

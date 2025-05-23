@@ -1,0 +1,86 @@
+---
+# PostgreSQL installation and basic setup
+
+- name: Install PostgreSQL packages
+  ansible.builtin.dnf:
+    name:
+      - "postgresql{{ postgresql_version }}-server"
+      - "postgresql{{ postgresql_version }}-contrib"
+      - "postgresql{{ postgresql_version }}-devel"
+      - "postgresql{{ postgresql_version }}-libs"
+    state: present
+  register: postgresql_installed
+
+- name: Create PostgreSQL user and group
+  ansible.builtin.group:
+    name: "{{ postgresql_group }}"
+    system: yes
+  
+- name: Create PostgreSQL user
+  ansible.builtin.user:
+    name: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    system: yes
+    shell: /bin/bash
+    home: "{{ postgresql_base_dir }}"
+    create_home: yes
+
+- name: Create PostgreSQL directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: '0700'
+  loop:
+    - "{{ postgresql_data_dir }}"
+    - "{{ postgresql_log_dir }}/{{ postgresql_version }}"
+    - "/var/lib/pgsql/archive"
+    - "/etc/postgresql/{{ postgresql_version }}"
+
+- name: Check if PostgreSQL database is already initialized
+  ansible.builtin.stat:
+    path: "{{ postgresql_data_dir }}/PG_VERSION"
+  register: pg_initialized
+
+- name: Initialize PostgreSQL database
+  ansible.builtin.command: "/usr/pgsql-{{ postgresql_version }}/bin/initdb -D {{ postgresql_data_dir }}"
+  become_user: "{{ postgresql_user }}"
+  when: not pg_initialized.stat.exists
+  register: db_init
+  
+- name: Display database initialization result
+  ansible.builtin.debug:
+    msg: "PostgreSQL {{ postgresql_version }} database initialized in {{ postgresql_data_dir }}"
+  when: db_init is changed
+
+- name: Set correct ownership for PostgreSQL directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    recurse: yes
+  loop:
+    - "{{ postgresql_data_dir }}"
+    - "{{ postgresql_log_dir }}/{{ postgresql_version }}"
+    - "/var/lib/pgsql/archive"
+
+- name: Create systemd override directory for PostgreSQL service
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ postgresql_service_name }}.service.d"
+    state: directory
+    mode: '0755'
+
+- name: Create systemd override for PostgreSQL service (custom data directory)
+  ansible.builtin.template:
+    src: postgresql-override.conf.j2
+    dest: "/etc/systemd/system/{{ postgresql_service_name }}.service.d/override.conf"
+    mode: '0644'
+  register: systemd_override
+  notify: reload systemd
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd_service:
+    daemon_reload: yes
+  when: systemd_override is changed

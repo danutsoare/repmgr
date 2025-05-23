@@ -1,0 +1,33 @@
+# Ansible inventory for repmgr PostgreSQL clusters
+# Define your hosts and groups here
+
+[cluster1_primary]
+pg_node1 ansible_host=192.168.1.100 ansible_user=vagrant ansible_ssh_private_key_file=~/.ssh/vagrant_rsa
+
+
+[cluster1_standby]
+# Define standby nodes for cluster1
+pg_node2 ansible_host=192.168.1.102 ansible_user=vagrant ansible_ssh_private_key_file=~/.ssh/vagrant_rsa
+pg_node3 ansible_host=192.168.1.103 ansible_user=vagrant ansible_ssh_private_key_file=~/.ssh/vagrant_rsa
+
+[cluster1:children]
+cluster1_primary
+cluster1_standby
+
+[cluster2_primary]
+# Define primary node for cluster2
+# Example: pg4.example.com
+
+[cluster2_standby]
+# Define standby nodes for cluster2
+# Example: pg5.example.com
+# Example: pg6.example.com
+
+[cluster2:children]
+cluster2_primary
+cluster2_standby
+
+[all:vars]
+# Global variables for all hosts
+ansible_user=root
+ansible_ssh_private_key_file=~/.ssh/id_rsa

@@ -1,0 +1,64 @@
+---
+# Service management for PostgreSQL and repmgr
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd_service:
+    daemon_reload: yes
+
+- name: Enable PostgreSQL service
+  ansible.builtin.systemd_service:
+    name: "{{ postgresql_service_name }}"
+    enabled: yes
+  register: postgresql_enabled
+
+- name: Start PostgreSQL service
+  ansible.builtin.systemd_service:
+    name: "{{ postgresql_service_name }}"
+    state: started
+  register: postgresql_started
+
+- name: Wait for PostgreSQL to be ready
+  ansible.builtin.wait_for:
+    port: "{{ postgresql_port }}"
+    host: localhost
+    delay: 5
+    timeout: 30
+  when: postgresql_started is changed
+
+- name: Verify PostgreSQL is running
+  ansible.builtin.command: "/usr/pgsql-{{ postgresql_version }}/bin/pg_isready -p {{ postgresql_port }} -h localhost"
+  register: pg_ready
+  retries: 5
+  delay: 2
+  until: pg_ready.rc == 0
+  changed_when: false
+
+- name: Display PostgreSQL service status
+  ansible.builtin.debug:
+    msg: |
+      PostgreSQL {{ postgresql_version }} service status:
+      - Service enabled: {{ postgresql_enabled is changed }}
+      - Service started: {{ postgresql_started is changed }}
+      - Port {{ postgresql_port }} ready: {{ pg_ready.rc == 0 }}
+
+- name: Enable repmgrd service (but don't start yet)
+  ansible.builtin.systemd_service:
+    name: "repmgrd-{{ postgresql_version }}"
+    enabled: yes
+  when: repmgrd_enabled | default(true)
+
+- name: Create PostgreSQL service status check script
+  ansible.builtin.template:
+    src: check_postgresql.sh.j2
+    dest: "/usr/local/bin/check_postgresql_{{ postgresql_version }}.sh"
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Create repmgr service status check script
+  ansible.builtin.template:
+    src: check_repmgr.sh.j2
+    dest: "/usr/local/bin/check_repmgr_{{ postgresql_version }}.sh"
+    mode: '0755'
+    owner: root
+    group: root
